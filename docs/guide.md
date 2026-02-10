@@ -1,18 +1,4 @@
-# penstock — Project Summary
-
-## What It Is
-
-Penstock is a lightweight Python library for defining, tracing, and visualizing application flows. It answers the question: **what are all the possible paths through my system?**
-
-You decorate your existing classes with `@flow`, `@entrypoint`, and `@step` to declare how data moves through your application. Penstock gives you three things in return:
-
-1. **Automatic correlation IDs** — every invocation of an entrypoint gets a unique ID that propagates through all downstream steps, so you can filter logs by a single operation.
-2. **Tracing spans** — each step is timed and recorded, either as structured log entries (default) or as real OpenTelemetry spans.
-3. **Static DAG generation** — flow structure is captured at import time and can be rendered as Mermaid diagrams for documentation that stays in sync with your code.
-
-Zero runtime dependencies. Python 3.14+.
-
----
+# Usage Guide
 
 ## Core Concepts
 
@@ -110,105 +96,7 @@ Only the `"mermaid"` format is currently supported.
 
 ---
 
-## Backends
-
-Penstock separates flow declaration from trace emission via pluggable backends.
-
-### LoggingBackend (default)
-
-Zero dependencies. Emits structured log records with `step.start` and `step.end` messages, including flow name, step name, correlation ID, and duration in milliseconds.
-
-```python
-from penstock import configure
-configure("logging")
-```
-
-### OTelBackend
-
-Creates real OpenTelemetry spans. Requires `opentelemetry-api` and `opentelemetry-sdk`.
-
-```python
-pip install penstock[otel]
-
-from penstock import configure
-configure("otel")
-```
-
-Each step becomes a span with `penstock.flow` attribute. The correlation ID is the OTel trace ID (32-char hex).
-
-### Auto-detection
-
-If you don't call `configure()`, penstock auto-detects on first use: it tries to create an `OTelBackend`, and if `opentelemetry` isn't installed, falls back to `LoggingBackend`.
-
-### Custom backends
-
-Subclass `TracingBackend` and pass an instance:
-
-```python
-from penstock.backends import TracingBackend
-from penstock import configure
-
-class MyBackend(TracingBackend):
-    def span(self, step_name, flow_name, **attrs):
-        ...  # your context manager
-
-    def get_correlation_id(self):
-        ...  # return current correlation ID
-
-configure(backend=MyBackend())
-```
-
----
-
-## Integrations
-
-### Django
-
-Middleware that creates a `FlowContext` per request and adds an `X-Correlation-ID` response header:
-
-```python
-# settings.py
-MIDDLEWARE = [
-    "penstock.contrib.django.FlowMiddleware",
-    ...
-]
-```
-
-### Celery
-
-Propagates correlation IDs across task boundaries:
-
-```python
-from penstock.contrib.celery import flow_task, install_celery_signals
-
-# Option 1: decorator-based (manual header management)
-@flow_task
-def my_task(data):
-    print(current_flow_id())  # correlation ID from the caller
-
-# Option 2: automatic via signals (call once at startup)
-install_celery_signals()
-```
-
-### structlog
-
-Processor that injects `flow_id` into every log entry during an active flow:
-
-```python
-import structlog
-from penstock.contrib.structlog import flow_processor
-
-structlog.configure(
-    processors=[
-        flow_processor,
-        structlog.dev.ConsoleRenderer(),
-    ]
-)
-```
-
----
-
-## Complete Examples
+## Examples
 
 ### Basic Flow with Logging Output
 
@@ -371,20 +259,3 @@ penstock/
     ├── celery.py        # flow_task + install_celery_signals
     └── structlog.py     # flow_processor
 ```
-
----
-
-## Installation
-
-```bash
-# Core (zero dependencies)
-pip install penstock
-
-# With OpenTelemetry support
-pip install penstock[otel]
-
-# With structlog support
-pip install penstock[structlog]
-```
-
-Requires Python 3.14+.
