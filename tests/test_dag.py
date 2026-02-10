@@ -5,24 +5,22 @@ from __future__ import annotations
 import pytest
 
 from penstock._dag import generate_dag
-from penstock._decorators import entrypoint, flow, step
+from penstock._decorators import entrypoint, step
 
 
 class TestMermaidFormat:
     def test_simple_linear_flow(self) -> None:
-        @flow("linear")
-        class F:
-            @entrypoint
-            def start(self) -> None:
-                pass
+        @entrypoint("linear")
+        def start() -> None:
+            pass
 
-            @step(after="start")
-            def process(self) -> None:
-                pass
+        @step("linear", after="start")
+        def process() -> None:
+            pass
 
-            @step(after="process")
-            def finish(self) -> None:
-                pass
+        @step("linear", after="process")
+        def finish() -> None:
+            pass
 
         result = generate_dag("linear")
         assert "graph TD" in result
@@ -30,23 +28,21 @@ class TestMermaidFormat:
         assert "process --> finish" in result
 
     def test_branching_flow(self) -> None:
-        @flow("branching")
-        class F:
-            @entrypoint
-            def validate(self) -> None:
-                pass
+        @entrypoint("branching")
+        def validate() -> None:
+            pass
 
-            @step(after="validate")
-            def charge(self) -> None:
-                pass
+        @step("branching", after="validate")
+        def charge() -> None:
+            pass
 
-            @step(after="validate")
-            def reserve(self) -> None:
-                pass
+        @step("branching", after="validate")
+        def reserve() -> None:
+            pass
 
-            @step(after=["charge", "reserve"])
-            def confirm(self) -> None:
-                pass
+        @step("branching", after=["charge", "reserve"])
+        def confirm() -> None:
+            pass
 
         result = generate_dag("branching")
         assert "validate --> charge" in result
@@ -55,64 +51,56 @@ class TestMermaidFormat:
         assert "reserve --> confirm" in result
 
     def test_multiple_entrypoints(self) -> None:
-        @flow("multi")
-        class F:
-            @entrypoint
-            def api(self) -> None:
-                pass
+        @entrypoint("multi")
+        def api() -> None:
+            pass
 
-            @entrypoint
-            def admin(self) -> None:
-                pass
+        @entrypoint("multi")
+        def admin() -> None:
+            pass
 
-            @step(after=["api", "admin"])
-            def process(self) -> None:
-                pass
+        @step("multi", after=["api", "admin"])
+        def process() -> None:
+            pass
 
         result = generate_dag("multi")
         assert "admin --> process" in result
         assert "api --> process" in result
 
     def test_deterministic_output(self) -> None:
-        @flow("det")
-        class F:
-            @entrypoint
-            def a(self) -> None:
-                pass
+        @entrypoint("det")
+        def a() -> None:
+            pass
 
-            @step(after="a")
-            def c(self) -> None:
-                pass
+        @step("det", after="a")
+        def c() -> None:
+            pass
 
-            @step(after="a")
-            def b(self) -> None:
-                pass
+        @step("det", after="a")
+        def b() -> None:
+            pass
 
         r1 = generate_dag("det")
         r2 = generate_dag("det")
         assert r1 == r2
 
     def test_steps_without_edges(self) -> None:
-        @flow("no_edges")
-        class F:
-            @entrypoint
-            def start(self) -> None:
-                pass
+        @entrypoint("no_edges")
+        def start() -> None:
+            pass
 
         result = generate_dag("no_edges")
         assert "graph TD" in result
         assert "start" in result
 
     def test_ends_with_newline(self) -> None:
-        @flow("nl")
-        class F:
-            @entrypoint
-            def start(self) -> None:
-                pass
+        @entrypoint("nl")
+        def start() -> None:
+            pass
 
-            @step(after="start")
-            def end(self) -> None:
-                pass
+        @step("nl", after="start")
+        def end() -> None:
+            pass
 
         result = generate_dag("nl")
         assert result.endswith("\n")
@@ -124,15 +112,13 @@ class TestOutputFile:
 
         assert isinstance(tmp_path, pathlib.Path)
 
-        @flow("file_out")
-        class F:
-            @entrypoint
-            def start(self) -> None:
-                pass
+        @entrypoint("file_out")
+        def start() -> None:
+            pass
 
-            @step(after="start")
-            def end(self) -> None:
-                pass
+        @step("file_out", after="start")
+        def end() -> None:
+            pass
 
         out = tmp_path / "dag.md"
         result = generate_dag("file_out", output=str(out))
@@ -147,11 +133,9 @@ class TestErrors:
             generate_dag("not_registered")
 
     def test_unsupported_format_raises(self) -> None:
-        @flow("f")
-        class F:
-            @entrypoint
-            def start(self) -> None:
-                pass
+        @entrypoint("f")
+        def start() -> None:
+            pass
 
         with pytest.raises(ValueError, match="Unsupported format"):
             generate_dag("f", format="png")  # type: ignore[call-overload]

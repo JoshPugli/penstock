@@ -30,30 +30,28 @@ Requires Python 3.14+.
 ## Quick Start
 
 ```python
-from penstock import flow, entrypoint, step, current_flow_id, generate_dag
+from penstock import entrypoint, step, current_flow_id, generate_dag
 
-@flow("order_processing")
-class OrderFlow:
-    @entrypoint
-    def receive_order(self, order_id: str) -> dict:
-        print(f"Order {order_id} (cid={current_flow_id()})")
-        data = self.validate(order_id)
-        self.charge(data)
-        return data
+@entrypoint("order_processing")
+def receive_order(order_id: str) -> dict:
+    print(f"Order {order_id} (cid={current_flow_id()})")
+    data = validate(order_id)
+    charge(data)
+    return data
 
-    @step(after="receive_order")
-    def validate(self, order_id: str) -> dict:
-        return {"order_id": order_id, "status": "valid"}
+@step("order_processing", after="receive_order")
+def validate(order_id: str) -> dict:
+    return {"order_id": order_id, "status": "valid"}
 
-    @step(after="validate")
-    def charge(self, data: dict) -> None:
-        ...
+@step("order_processing", after="validate")
+def charge(data: dict) -> None:
+    ...
 
-    @step(after="validate")
-    def ship(self, data: dict) -> None:
-        ...
+@step("order_processing", after="validate")
+def ship(data: dict) -> None:
+    ...
 
-OrderFlow().receive_order("ORD-001")
+receive_order("ORD-001")
 # Every step shares the same correlation ID for log filtering.
 
 print(generate_dag("order_processing"))

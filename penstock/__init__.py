@@ -8,13 +8,12 @@ from penstock._context import (
     set_flow_context_value,
 )
 from penstock._dag import generate_dag
-from penstock._decorators import entrypoint, flow, step
+from penstock._decorators import entrypoint, step
 
 __all__ = [
     "configure",
     "current_flow_id",
     "entrypoint",
-    "flow",
     "generate_dag",
     "get_flow_context",
     "get_flow_context_value",

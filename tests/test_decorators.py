@@ -10,49 +10,9 @@ from penstock._context import current_flow_id, get_flow_context
 from penstock._decorators import (
     _normalize_after,
     entrypoint,
-    flow,
     step,
 )
 from penstock._registry import _registry
-
-# ---------------------------------------------------------------------------
-# @flow
-# ---------------------------------------------------------------------------
-
-
-class TestFlow:
-    def test_stamps_attribute(self) -> None:
-        @flow("my_flow")
-        class MyFlow:
-            pass
-
-        assert MyFlow.__penstock_flow__ == "my_flow"  # type: ignore[attr-defined]
-
-    def test_returns_class_unchanged(self) -> None:
-        @flow("f")
-        class MyFlow:
-            x = 1
-
-        assert MyFlow.x == 1
-        assert isinstance(MyFlow(), MyFlow)
-
-    def test_registers_marked_methods(self) -> None:
-        @flow("order")
-        class OrderFlow:
-            @entrypoint
-            def start(self) -> None:
-                pass
-
-            @step(after="start")
-            def process(self) -> None:
-                pass
-
-        info = _registry.get_flow("order")
-        assert "start" in info.steps
-        assert "process" in info.steps
-        assert info.steps["start"].is_entrypoint is True
-        assert info.steps["process"].after == ("start",)
-
 
 # ---------------------------------------------------------------------------
 # @entrypoint
@@ -60,57 +20,56 @@ class TestFlow:
 
 
 class TestEntrypoint:
-    def test_creates_flow_context(self) -> None:
-        @flow("ep_flow")
-        class F:
-            @entrypoint
-            def run(self) -> str | None:
-                return current_flow_id()
+    def test_registration(self) -> None:
+        @entrypoint("reg_flow")
+        def start() -> None:
+            pass
 
-        cid = F().run()
+        info = _registry.get_flow("reg_flow")
+        assert "start" in info.steps
+        assert info.steps["start"].is_entrypoint is True
+
+    def test_creates_flow_context(self) -> None:
+        @entrypoint("ep_flow")
+        def run() -> str | None:
+            return current_flow_id()
+
+        cid = run()
         assert isinstance(cid, str)
         assert len(cid) == 32
 
     def test_resets_context_after(self) -> None:
-        @flow("ep_flow2")
-        class F:
-            @entrypoint
-            def run(self) -> None:
-                pass
+        @entrypoint("ep_flow2")
+        def run() -> None:
+            pass
 
-        F().run()
+        run()
         assert get_flow_context() is None
 
     def test_resets_context_on_exception(self) -> None:
-        @flow("ep_flow3")
-        class F:
-            @entrypoint
-            def run(self) -> None:
-                raise ValueError("boom")
+        @entrypoint("ep_flow3")
+        def run() -> None:
+            raise ValueError("boom")
 
         with pytest.raises(ValueError, match="boom"):
-            F().run()
+            run()
         assert get_flow_context() is None
 
     def test_with_custom_name(self) -> None:
-        @flow("f")
-        class F:
-            @entrypoint(name="custom_start")
-            def run(self) -> None:
-                pass
+        @entrypoint("f", name="custom_start")
+        def run() -> None:
+            pass
 
         info = _registry.get_flow("f")
         assert "custom_start" in info.steps
 
-    def test_registered_as_entrypoint(self) -> None:
-        @flow("f")
-        class F:
-            @entrypoint
-            def run(self) -> None:
-                pass
+    def test_with_after(self) -> None:
+        @entrypoint("f", after="previous")
+        def run() -> None:
+            pass
 
         info = _registry.get_flow("f")
-        assert info.steps["run"].is_entrypoint is True
+        assert info.steps["run"].after == ("previous",)
 
 
 # ---------------------------------------------------------------------------
@@ -119,52 +78,70 @@ class TestEntrypoint:
 
 
 class TestStep:
+    def test_registration(self) -> None:
+        @entrypoint("step_flow")
+        def start() -> None:
+            pass
+
+        @step("step_flow", after="start")
+        def process() -> None:
+            pass
+
+        info = _registry.get_flow("step_flow")
+        assert "start" in info.steps
+        assert "process" in info.steps
+        assert info.steps["process"].is_entrypoint is False
+        assert info.steps["process"].after == ("start",)
+
     def test_reuses_context(self) -> None:
-        @flow("step_flow")
-        class F:
-            @entrypoint
-            def start(self) -> str | None:
-                cid = current_flow_id()
-                self.process()
-                return cid
+        @step("step_flow2", after="start")
+        def process() -> None:
+            assert current_flow_id() is not None
 
-            @step(after="start")
-            def process(self) -> None:
-                # Should still have the same context
-                assert current_flow_id() is not None
+        @entrypoint("step_flow2")
+        def start() -> str | None:
+            cid = current_flow_id()
+            process()
+            return cid
 
-        cid = F().start()
+        cid = start()
         assert cid is not None
 
     def test_step_outside_context_raises(self) -> None:
-        @flow("step_flow2")
-        class F:
-            @step
-            def process(self) -> None:
-                pass
+        @step("step_flow3", after="start")
+        def process() -> None:
+            pass
 
         with pytest.raises(RuntimeError, match="outside of a flow context"):
-            F().process()
-
-    def test_registered_as_non_entrypoint(self) -> None:
-        @flow("f")
-        class F:
-            @step(after="start")
-            def process(self) -> None:
-                pass
-
-        info = _registry.get_flow("f")
-        assert info.steps["process"].is_entrypoint is False
+            process()
 
     def test_step_with_after_string(self) -> None:
-        @flow("f")
-        class F:
-            @step(after="validate")
-            def process(self) -> None:
-                pass
+        @step("f", after="validate")
+        def process() -> None:
+            pass
 
         info = _registry.get_flow("f")
         assert info.steps["process"].after == ("validate",)
+
+    def test_step_with_after_callable(self) -> None:
+        @entrypoint("f2")
+        def start() -> None:
+            pass
+
+        @step("f2", after=start)
+        def process() -> None:
+            pass
+
+        info = _registry.get_flow("f2")
+        assert info.steps["process"].after == ("start",)
+
+    def test_step_with_after_list(self) -> None:
+        @step("f3", after=["a", "b"])
+        def process() -> None:
+            pass
+
+        info = _registry.get_flow("f3")
+        assert info.steps["process"].after == ("a", "b")
 
 
 # ---------------------------------------------------------------------------
@@ -203,74 +180,61 @@ class TestNormalizeAfter:
 
 class TestAsync:
     def test_async_entrypoint(self) -> None:
-        @flow("async_flow")
-        class F:
-            @entrypoint
-            async def start(self) -> str | None:
-                return current_flow_id()
+        @entrypoint("async_flow")
+        async def start() -> str | None:
+            return current_flow_id()
 
-        cid = asyncio.run(F().start())
+        cid = asyncio.run(start())
         assert isinstance(cid, str)
         assert len(cid) == 32
         # Context should be reset after
         assert get_flow_context() is None
 
     def test_async_step(self) -> None:
-        @flow("async_flow2")
-        class F:
-            @entrypoint
-            async def start(self) -> str | None:
-                cid = current_flow_id()
-                await self.process()
-                return cid
+        @step("async_flow2", after="start")
+        async def process() -> None:
+            assert current_flow_id() is not None
 
-            @step(after="start")
-            async def process(self) -> None:
-                assert current_flow_id() is not None
+        @entrypoint("async_flow2")
+        async def start() -> str | None:
+            cid = current_flow_id()
+            await process()
+            return cid
 
-        cid = asyncio.run(F().start())
+        cid = asyncio.run(start())
         assert cid is not None
 
     def test_async_step_outside_context_raises(self) -> None:
-        @flow("async_flow3")
-        class F:
-            @step
-            async def process(self) -> None:
-                pass
-
-        with pytest.raises(RuntimeError, match="outside of a flow context"):
-            asyncio.run(F().process())
-
-
-# ---------------------------------------------------------------------------
-# Edge cases
-# ---------------------------------------------------------------------------
-
-
-class TestEdgeCases:
-    def test_flow_without_steps(self) -> None:
-        @flow("empty")
-        class F:
+        @step("async_flow3", after="start")
+        async def process() -> None:
             pass
 
-        assert F.__penstock_flow__ == "empty"  # type: ignore[attr-defined]
-        # Flow is not in the registry since no steps were registered
-        with pytest.raises(KeyError):
-            _registry.get_flow("empty")
+        with pytest.raises(RuntimeError, match="outside of a flow context"):
+            asyncio.run(process())
 
-    def test_bare_decorators(self) -> None:
-        """@entrypoint and @step can be used without parentheses."""
 
-        @flow("bare")
-        class F:
-            @entrypoint
-            def start(self) -> None:
-                pass
+# ---------------------------------------------------------------------------
+# Methods in a class (no @flow needed)
+# ---------------------------------------------------------------------------
 
-            @step
-            def process(self) -> None:
-                pass
 
-        info = _registry.get_flow("bare")
-        assert "start" in info.steps
-        assert "process" in info.steps
+class TestMethodsInClass:
+    def test_methods_register_and_run(self) -> None:
+        class OrderFlow:
+            @entrypoint("order")
+            def receive(self, order_id: str) -> str | None:
+                cid = current_flow_id()
+                self.validate(order_id)
+                return cid
+
+            @step("order", after="receive")
+            def validate(self, order_id: str) -> None:
+                assert current_flow_id() is not None
+
+        info = _registry.get_flow("order")
+        assert "receive" in info.steps
+        assert "validate" in info.steps
+
+        cid = OrderFlow().receive("ORD-1")
+        assert isinstance(cid, str)
+        assert len(cid) == 32

@@ -1,60 +1,65 @@
 """Demo: generate Mermaid DAGs for multiple flows."""
 
-from penstock import entrypoint, flow, generate_dag, step
+from penstock import entrypoint, generate_dag, step
 
 
 # --- Flow 1: simple linear pipeline ---
-@flow("etl")
-class ETL:
-    @entrypoint
-    def extract(self) -> None: ...
+@entrypoint("etl")
+def extract() -> None: ...
 
-    @step(after="extract")
-    def transform(self) -> None: ...
 
-    @step(after="transform")
-    def load(self) -> None: ...
+@step("etl", after="extract")
+def transform() -> None: ...
+
+
+@step("etl", after="transform")
+def load() -> None: ...
 
 
 # --- Flow 2: branching with multiple entrypoints ---
-@flow("user_update")
-class UserUpdate:
-    @entrypoint
-    def api_request(self) -> None: ...
+@entrypoint("user_update")
+def api_request() -> None: ...
 
-    @entrypoint
-    def admin_action(self) -> None: ...
 
-    @step(after=["api_request", "admin_action"])
-    def validate(self) -> None: ...
+@entrypoint("user_update")
+def admin_action() -> None: ...
 
-    @step(after="validate")
-    def persist(self) -> None: ...
 
-    @step(after="validate")
-    def notify(self) -> None: ...
+@step("user_update", after=["api_request", "admin_action"])
+def validate() -> None: ...
 
-    @step(after=["persist", "notify"])
-    def audit_log(self) -> None: ...
+
+@step("user_update", after="validate")
+def persist() -> None: ...
+
+
+@step("user_update", after="validate")
+def notify() -> None: ...
+
+
+@step("user_update", after=["persist", "notify"])
+def audit_log() -> None: ...
 
 
 # --- Flow 3: diamond dependency ---
-@flow("deploy")
-class Deploy:
-    @entrypoint
-    def build(self) -> None: ...
+@entrypoint("deploy")
+def build() -> None: ...
 
-    @step(after="build")
-    def test_unit(self) -> None: ...
 
-    @step(after="build")
-    def test_integration(self) -> None: ...
+@step("deploy", after="build")
+def test_unit() -> None: ...
 
-    @step(after=["test_unit", "test_integration"])
-    def deploy_staging(self) -> None: ...
 
-    @step(after="deploy_staging")
-    def deploy_prod(self) -> None: ...
+@step("deploy", after="build")
+def test_integration() -> None: ...
+
+
+@step("deploy", after=["test_unit", "test_integration"])
+def deploy_staging() -> None: ...
+
+
+@step("deploy", after="deploy_staging")
+def deploy_prod() -> None: ...
 
 
 if __name__ == "__main__":

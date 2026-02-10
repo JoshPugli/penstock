@@ -7,36 +7,56 @@
 A **flow** is a named group of related functions. An **entrypoint** is where a flow begins (e.g., an HTTP request handler, a Kafka consumer). A **step** is a function that runs after one or more predecessors.
 
 ```python
-from penstock import flow, entrypoint, step
+from penstock import entrypoint, step
 
-@flow("order_processing")
-class OrderFlow:
-    @entrypoint
-    def receive_order(self, order_id: str) -> dict:
-        data = self.validate(order_id)
-        self.charge(data)
-        self.ship(data)
-        return data
+@entrypoint("order_processing")
+def receive_order(order_id: str) -> dict:
+    data = validate(order_id)
+    charge(data)
+    ship(data)
+    return data
 
-    @step(after="receive_order")
-    def validate(self, order_id: str) -> dict:
-        return {"order_id": order_id, "status": "valid"}
+@step("order_processing", after="receive_order")
+def validate(order_id: str) -> dict:
+    return {"order_id": order_id, "status": "valid"}
 
-    @step(after="validate")
-    def charge(self, data: dict) -> None:
-        ...
+@step("order_processing", after="validate")
+def charge(data: dict) -> None:
+    ...
 
-    @step(after="validate")
-    def ship(self, data: dict) -> None:
-        ...
+@step("order_processing", after="validate")
+def ship(data: dict) -> None:
+    ...
 ```
 
 Key details:
-- `@flow(name)` is a **class decorator**. It scans the class for `@entrypoint`/`@step` markers and registers them.
-- `@entrypoint` creates a fresh `FlowContext` (with a new correlation ID) on each call and resets it when the call finishes.
-- `@step` reuses the existing `FlowContext`. It raises `RuntimeError` if called outside a flow.
+- `@entrypoint("flow_name")` creates a fresh `FlowContext` (with a new correlation ID) on each call and resets it when the call finishes.
+- `@step("flow_name", after=...)` reuses the existing `FlowContext`. It raises `RuntimeError` if called outside a flow.
+- The flow name is passed as the first argument to both decorators — always use parentheses.
 - `after=` accepts a string, a callable, or a list of either. It declares the DAG edge, not the execution order — your code still calls functions normally.
 - Both sync and async functions are supported.
+- Decorators work on any callable — standalone functions, methods, static methods, etc.
+
+### Methods in a Class
+
+You can use the decorators on class methods without any special class decorator:
+
+```python
+class OrderFlow:
+    @entrypoint("order_processing")
+    def receive_order(self, order_id: str) -> dict:
+        data = self.validate(order_id)
+        self.charge(data)
+        return data
+
+    @step("order_processing", after="receive_order")
+    def validate(self, order_id: str) -> dict:
+        return {"order_id": order_id, "status": "valid"}
+
+    @step("order_processing", after="validate")
+    def charge(self, data: dict) -> None:
+        ...
+```
 
 ### Correlation IDs
 
@@ -102,7 +122,7 @@ Only the `"mermaid"` format is currently supported.
 
 ```python
 import logging
-from penstock import configure, current_flow_id, entrypoint, flow, generate_dag, step
+from penstock import configure, current_flow_id, entrypoint, generate_dag, step
 
 logging.basicConfig(
     level=logging.INFO,
@@ -110,30 +130,27 @@ logging.basicConfig(
 )
 configure("logging")
 
-@flow("order_processing")
-class OrderFlow:
-    @entrypoint
-    def receive_order(self, order_id: str) -> dict:
-        print(f"Received order {order_id} (cid={current_flow_id()})")
-        data = self.validate(order_id)
-        self.charge(data)
-        self.ship(data)
-        return data
+@entrypoint("order_processing")
+def receive_order(order_id: str) -> dict:
+    print(f"Received order {order_id} (cid={current_flow_id()})")
+    data = validate(order_id)
+    charge(data)
+    ship(data)
+    return data
 
-    @step(after="receive_order")
-    def validate(self, order_id: str) -> dict:
-        return {"order_id": order_id, "status": "valid"}
+@step("order_processing", after="receive_order")
+def validate(order_id: str) -> dict:
+    return {"order_id": order_id, "status": "valid"}
 
-    @step(after="validate")
-    def charge(self, data: dict) -> None:
-        print(f"Charging for order {data['order_id']}")
+@step("order_processing", after="validate")
+def charge(data: dict) -> None:
+    print(f"Charging for order {data['order_id']}")
 
-    @step(after="validate")
-    def ship(self, data: dict) -> None:
-        print(f"Shipping order {data['order_id']}")
+@step("order_processing", after="validate")
+def ship(data: dict) -> None:
+    print(f"Shipping order {data['order_id']}")
 
-f = OrderFlow()
-f.receive_order("ORD-001")
+receive_order("ORD-001")
 
 # Each call gets a unique correlation ID.
 # All log entries within that call share the same ID.
@@ -142,27 +159,25 @@ f.receive_order("ORD-001")
 ### Multiple Entrypoints and Branching
 
 ```python
-from penstock import entrypoint, flow, generate_dag, step
+from penstock import entrypoint, generate_dag, step
 
-@flow("user_update")
-class UserUpdate:
-    @entrypoint
-    def api_request(self) -> None: ...
+@entrypoint("user_update")
+def api_request() -> None: ...
 
-    @entrypoint
-    def admin_action(self) -> None: ...
+@entrypoint("user_update")
+def admin_action() -> None: ...
 
-    @step(after=["api_request", "admin_action"])
-    def validate(self) -> None: ...
+@step("user_update", after=["api_request", "admin_action"])
+def validate() -> None: ...
 
-    @step(after="validate")
-    def persist(self) -> None: ...
+@step("user_update", after="validate")
+def persist() -> None: ...
 
-    @step(after="validate")
-    def notify(self) -> None: ...
+@step("user_update", after="validate")
+def notify() -> None: ...
 
-    @step(after=["persist", "notify"])
-    def audit_log(self) -> None: ...
+@step("user_update", after=["persist", "notify"])
+def audit_log() -> None: ...
 
 print(generate_dag("user_update"))
 ```
@@ -182,33 +197,31 @@ graph TD
 
 ```python
 from penstock import (
-    current_flow_id, entrypoint, flow,
+    current_flow_id, entrypoint,
     get_flow_context_value, set_flow_context_value, step,
 )
 
-@flow("context_demo")
-class ContextDemo:
-    @entrypoint
-    def start(self, user: str) -> None:
-        print(f"Correlation ID: {current_flow_id()}")
-        set_flow_context_value("user", user)
-        set_flow_context_value("source", "api")
-        self.process()
-        self.finish()
+@entrypoint("context_demo")
+def start(user: str) -> None:
+    print(f"Correlation ID: {current_flow_id()}")
+    set_flow_context_value("user", user)
+    set_flow_context_value("source", "api")
+    process()
+    finish()
 
-    @step(after="start")
-    def process(self) -> None:
-        user = get_flow_context_value("user")
-        source = get_flow_context_value("source")
-        print(f"Processing for user={user}, source={source}")
-        set_flow_context_value("processed", True)
+@step("context_demo", after="start")
+def process() -> None:
+    user = get_flow_context_value("user")
+    source = get_flow_context_value("source")
+    print(f"Processing for user={user}, source={source}")
+    set_flow_context_value("processed", True)
 
-    @step(after="process")
-    def finish(self) -> None:
-        processed = get_flow_context_value("processed", False)
-        print(f"Finishing (processed={processed})")
+@step("context_demo", after="process")
+def finish() -> None:
+    processed = get_flow_context_value("processed", False)
+    print(f"Finishing (processed={processed})")
 
-ContextDemo().start("alice")
+start("alice")
 # Output:
 #   Correlation ID: a1b2c3d4...
 #   Processing for user=alice, source=api
@@ -219,22 +232,20 @@ ContextDemo().start("alice")
 
 ```python
 import asyncio
-from penstock import configure, current_flow_id, entrypoint, flow, step
+from penstock import configure, current_flow_id, entrypoint, step
 
 configure("logging")
 
-@flow("async_pipeline")
-class AsyncPipeline:
-    @entrypoint
-    async def ingest(self, url: str) -> str:
-        print(f"Ingesting {url} (cid={current_flow_id()})")
-        return await self.transform(f"data from {url}")
+@entrypoint("async_pipeline")
+async def ingest(url: str) -> str:
+    print(f"Ingesting {url} (cid={current_flow_id()})")
+    return await transform(f"data from {url}")
 
-    @step(after="ingest")
-    async def transform(self, raw: str) -> str:
-        return raw.upper()
+@step("async_pipeline", after="ingest")
+async def transform(raw: str) -> str:
+    return raw.upper()
 
-asyncio.run(AsyncPipeline().ingest("https://example.com"))
+asyncio.run(ingest("https://example.com"))
 ```
 
 ---
@@ -248,7 +259,7 @@ penstock/
 ├── _context.py          # FlowContext + contextvars propagation
 ├── _registry.py         # Thread-safe flow registry
 ├── _config.py           # Backend configuration (configure/get_backend/reset)
-├── _decorators.py       # @flow, @entrypoint, @step
+├── _decorators.py       # @entrypoint, @step
 ├── _dag.py              # generate_dag() — Mermaid output
 ├── backends/
 │   ├── base.py          # TracingBackend ABC

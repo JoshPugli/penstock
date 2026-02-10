@@ -1,6 +1,6 @@
 # Backends
 
-Penstock separates flow declaration from trace emission via pluggable backends. The `@flow` and `@step` decorators always do two things:
+Penstock separates flow declaration from trace emission via pluggable backends. The `@entrypoint` and `@step` decorators always do two things:
 
 1. **Import time** — register the step in a flow registry used for static DAG generation. This happens regardless of backend.
 2. **Runtime** — delegate to a configurable `TracingBackend` that decides how to record the execution.

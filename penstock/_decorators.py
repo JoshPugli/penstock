@@ -1,11 +1,11 @@
-"""User-facing decorators: @flow, @entrypoint, @step."""
+"""User-facing decorators: @entrypoint, @step."""
 
 from __future__ import annotations
 
 import functools
 import inspect
 from collections.abc import Callable
-from typing import Any, TypeVar, overload
+from typing import Any
 
 from penstock._config import get_backend
 from penstock._context import (
@@ -16,11 +16,6 @@ from penstock._context import (
 )
 from penstock._registry import _registry
 from penstock._types import P, R, StepInfo
-
-_STEP_MARKER = "__penstock_step__"
-
-C = TypeVar("C", bound=type)
-
 
 # ---------------------------------------------------------------------------
 # after= normalization
@@ -46,74 +41,23 @@ def _normalize_after(
 
 
 # ---------------------------------------------------------------------------
-# @flow(name)
+# @entrypoint("flow_name")
 # ---------------------------------------------------------------------------
-
-
-def flow(name: str) -> Callable[[C], C]:
-    """Class decorator that marks a class as a penstock flow.
-
-    Scans the class for methods decorated with ``@entrypoint`` or ``@step``
-    and registers them in the global registry.
-    """
-
-    def decorator(cls: C) -> C:
-        cls.__penstock_flow__ = name  # type: ignore[attr-defined]
-
-        for attr_name in list(vars(cls)):
-            obj = vars(cls)[attr_name]
-            marker = getattr(obj, _STEP_MARKER, None)
-            if marker is not None:
-                step_name: str = marker["name"]
-                after: tuple[str, ...] = marker["after"]
-                is_entrypoint: bool = marker["is_entrypoint"]
-                info = StepInfo(
-                    name=step_name,
-                    flow_name=name,
-                    after=after,
-                    is_entrypoint=is_entrypoint,
-                )
-                _registry.register(info)
-                _flow_name_cache[id(obj)] = name
-
-        return cls
-
-    return decorator
-
-
-# ---------------------------------------------------------------------------
-# @entrypoint
-# ---------------------------------------------------------------------------
-
-
-@overload
-def entrypoint(fn: Callable[P, R]) -> Callable[P, R]: ...
-
-
-@overload
-def entrypoint(
-    *,
-    name: str | None = ...,
-    after: str | Callable[..., Any] | list[str | Callable[..., Any]] | None = ...,
-) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
 def entrypoint(
-    fn: Callable[..., Any] | None = None,
+    flow_name: str,
     *,
     name: str | None = None,
     after: str | Callable[..., Any] | list[str | Callable[..., Any]] | None = None,
-) -> Any:
-    """Mark a method as a flow entrypoint.
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """Mark a callable as a flow entrypoint.
 
-    Can be used bare (``@entrypoint``) or with arguments
-    (``@entrypoint(name="custom")``).
+    Always called with parentheses: ``@entrypoint("my_flow")``.
     """
-    if fn is not None:
-        return _make_entrypoint(fn, name=None, after=None)
 
-    def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
-        return _make_entrypoint(f, name=name, after=after)
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        return _make_entrypoint(fn, flow_name=flow_name, name=name, after=after)
 
     return decorator
 
@@ -121,11 +65,20 @@ def entrypoint(
 def _make_entrypoint(
     fn: Callable[..., Any],
     *,
+    flow_name: str,
     name: str | None,
     after: str | Callable[..., Any] | list[str | Callable[..., Any]] | None,
 ) -> Callable[..., Any]:
     step_name = name or fn.__name__
     after_tuple = _normalize_after(after)
+
+    info = StepInfo(
+        name=step_name,
+        flow_name=flow_name,
+        after=after_tuple,
+        is_entrypoint=True,
+    )
+    _registry.register(info)
 
     if inspect.iscoroutinefunction(fn):
 
@@ -134,20 +87,11 @@ def _make_entrypoint(
             _set_context(FlowContext())
             backend = get_backend()
             try:
-                with backend.span(step_name, _resolve_flow_name(async_wrapper)):
+                with backend.span(step_name, flow_name):
                     return await fn(*args, **kwargs)
             finally:
                 _reset_context()
 
-        setattr(
-            async_wrapper,
-            _STEP_MARKER,
-            {
-                "name": step_name,
-                "after": after_tuple,
-                "is_entrypoint": True,
-            },
-        )
         return async_wrapper
 
     @functools.wraps(fn)
@@ -155,56 +99,32 @@ def _make_entrypoint(
         _set_context(FlowContext())
         backend = get_backend()
         try:
-            with backend.span(step_name, _resolve_flow_name(wrapper)):
+            with backend.span(step_name, flow_name):
                 return fn(*args, **kwargs)
         finally:
             _reset_context()
 
-    setattr(
-        wrapper,
-        _STEP_MARKER,
-        {
-            "name": step_name,
-            "after": after_tuple,
-            "is_entrypoint": True,
-        },
-    )
     return wrapper
 
 
 # ---------------------------------------------------------------------------
-# @step
+# @step("flow_name")
 # ---------------------------------------------------------------------------
 
 
-@overload
-def step(fn: Callable[P, R]) -> Callable[P, R]: ...
-
-
-@overload
 def step(
-    *,
-    name: str | None = ...,
-    after: str | Callable[..., Any] | list[str | Callable[..., Any]] | None = ...,
-) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
-
-
-def step(
-    fn: Callable[..., Any] | None = None,
+    flow_name: str,
     *,
     name: str | None = None,
     after: str | Callable[..., Any] | list[str | Callable[..., Any]] | None = None,
-) -> Any:
-    """Mark a method as a flow step.
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """Mark a callable as a flow step.
 
-    Can be used bare (``@step``) or with arguments
-    (``@step(after="validate")``).
+    Always called with parentheses: ``@step("my_flow", after="validate")``.
     """
-    if fn is not None:
-        return _make_step(fn, name=None, after=None)
 
-    def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
-        return _make_step(f, name=name, after=after)
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        return _make_step(fn, flow_name=flow_name, name=name, after=after)
 
     return decorator
 
@@ -212,11 +132,20 @@ def step(
 def _make_step(
     fn: Callable[..., Any],
     *,
+    flow_name: str,
     name: str | None,
     after: str | Callable[..., Any] | list[str | Callable[..., Any]] | None,
 ) -> Callable[..., Any]:
     step_name = name or fn.__name__
     after_tuple = _normalize_after(after)
+
+    info = StepInfo(
+        name=step_name,
+        flow_name=flow_name,
+        after=after_tuple,
+        is_entrypoint=False,
+    )
+    _registry.register(info)
 
     if inspect.iscoroutinefunction(fn):
 
@@ -229,18 +158,9 @@ def _make_step(
                     "Ensure an @entrypoint has been called first."
                 )
             backend = get_backend()
-            with backend.span(step_name, _resolve_flow_name(async_wrapper)):
+            with backend.span(step_name, flow_name):
                 return await fn(*args, **kwargs)
 
-        setattr(
-            async_wrapper,
-            _STEP_MARKER,
-            {
-                "name": step_name,
-                "after": after_tuple,
-                "is_entrypoint": False,
-            },
-        )
         return async_wrapper
 
     @functools.wraps(fn)
@@ -252,43 +172,7 @@ def _make_step(
                 "Ensure an @entrypoint has been called first."
             )
         backend = get_backend()
-        with backend.span(step_name, _resolve_flow_name(wrapper)):
+        with backend.span(step_name, flow_name):
             return fn(*args, **kwargs)
 
-    setattr(
-        wrapper,
-        _STEP_MARKER,
-        {
-            "name": step_name,
-            "after": after_tuple,
-            "is_entrypoint": False,
-        },
-    )
     return wrapper
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-# Maps wrapper function id -> flow_name (populated by @flow at class creation)
-_flow_name_cache: dict[int, str] = {}
-
-
-def _resolve_flow_name(wrapper: Callable[..., Any]) -> str:
-    """Look up the flow name for a wrapper.
-
-    Falls back to qualname parsing if not in cache (shouldn't happen in
-    normal usage since @flow populates the cache).
-    """
-    fid = id(wrapper)
-    cached = _flow_name_cache.get(fid)
-    if cached is not None:
-        return cached
-
-    # Try to find the flow name from the qualname (ClassName.method_name)
-    qualname = getattr(wrapper, "__qualname__", "")
-    parts = qualname.rsplit(".", 1)
-    if len(parts) == 2:
-        return parts[0]
-    return "<unknown>"

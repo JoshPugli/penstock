@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from penstock import configure, current_flow_id, entrypoint, flow, step
+from penstock import configure, current_flow_id, entrypoint, step
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,29 +13,28 @@ logging.basicConfig(
 configure("logging")
 
 
-@flow("async_pipeline")
-class AsyncPipeline:
-    @entrypoint
-    async def ingest(self, payload: str) -> str:
-        cid = current_flow_id()
-        print(f"Ingesting '{payload}' (cid={cid})")
-        result = await self.transform(payload)
-        await self.store(result)
-        return result
+@entrypoint("async_pipeline")
+async def ingest(payload: str) -> str:
+    cid = current_flow_id()
+    print(f"Ingesting '{payload}' (cid={cid})")
+    result = await transform(payload)
+    await store(result)
+    return result
 
-    @step(after="ingest")
-    async def transform(self, payload: str) -> str:
-        print(f"  Transforming: {payload}")
-        await asyncio.sleep(0.01)  # simulate async I/O
-        return payload.upper()
 
-    @step(after="transform")
-    async def store(self, data: str) -> None:
-        print(f"  Storing: {data}")
-        await asyncio.sleep(0.01)
+@step("async_pipeline", after="ingest")
+async def transform(payload: str) -> str:
+    print(f"  Transforming: {payload}")
+    await asyncio.sleep(0.01)  # simulate async I/O
+    return payload.upper()
+
+
+@step("async_pipeline", after="transform")
+async def store(data: str) -> None:
+    print(f"  Storing: {data}")
+    await asyncio.sleep(0.01)
 
 
 if __name__ == "__main__":
-    p = AsyncPipeline()
-    result = asyncio.run(p.ingest("hello world"))
+    result = asyncio.run(ingest("hello world"))
     print(f"\nFinal result: {result}")

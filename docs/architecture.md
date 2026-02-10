@@ -21,14 +21,14 @@ Penstock is designed to be useful from day one without any tracing infrastructur
 Install penstock, decorate your pipeline, and get correlation IDs in your existing log aggregator immediately. No new infrastructure required.
 
 ```python
-@flow("bom_sync")
-@entrypoint
+from penstock import entrypoint, step
+
+@entrypoint("bom_sync")
 def handle_kafka_message(msg):
     part_number = msg.payload["part_number"]
     return sync_reference(part_number)
 
-@flow("bom_sync")
-@step(after="handle_kafka_message")
+@step("bom_sync", after="handle_kafka_message")
 def sync_reference(part_number):
     data = fetch_from_api(part_number)
     return upsert_to_db(data)
@@ -78,8 +78,7 @@ For flows that span Celery tasks, Kafka consumers, or gRPC calls, penstock's con
 ```python
 from penstock.contrib.celery import flow_task
 
-@flow("bom_sync")
-@flow_task(after="publish_change_events")
+@flow_task
 def create_change_logs(changelog_dicts):
     # Trace ID propagated automatically via Celery headers
     # Appears as a child span of publish_change_events in your trace viewer

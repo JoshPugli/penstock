@@ -2,7 +2,7 @@
 
 import logging
 
-from penstock import configure, current_flow_id, entrypoint, flow, generate_dag, step
+from penstock import configure, current_flow_id, entrypoint, generate_dag, step
 
 # Set up logging so we can see penstock's structured output.
 logging.basicConfig(
@@ -13,37 +13,37 @@ logging.basicConfig(
 configure("logging")
 
 
-@flow("order_processing")
-class OrderFlow:
-    @entrypoint
-    def receive_order(self, order_id: str) -> dict[str, str]:
-        print(f"\n--- Received order {order_id} (cid={current_flow_id()}) ---")
-        data = self.validate(order_id)
-        self.charge(data)
-        self.ship(data)
-        return data
+@entrypoint("order_processing")
+def receive_order(order_id: str) -> dict[str, str]:
+    print(f"\n--- Received order {order_id} (cid={current_flow_id()}) ---")
+    data = validate(order_id)
+    charge(data)
+    ship(data)
+    return data
 
-    @step(after="receive_order")
-    def validate(self, order_id: str) -> dict[str, str]:
-        print(f"  Validating order {order_id}")
-        return {"order_id": order_id, "status": "valid"}
 
-    @step(after="validate")
-    def charge(self, data: dict[str, str]) -> None:
-        print(f"  Charging for order {data['order_id']}")
+@step("order_processing", after="receive_order")
+def validate(order_id: str) -> dict[str, str]:
+    print(f"  Validating order {order_id}")
+    return {"order_id": order_id, "status": "valid"}
 
-    @step(after="validate")
-    def ship(self, data: dict[str, str]) -> None:
-        print(f"  Shipping order {data['order_id']}")
+
+@step("order_processing", after="validate")
+def charge(data: dict[str, str]) -> None:
+    print(f"  Charging for order {data['order_id']}")
+
+
+@step("order_processing", after="validate")
+def ship(data: dict[str, str]) -> None:
+    print(f"  Shipping order {data['order_id']}")
 
 
 if __name__ == "__main__":
     # --- Run the flow ---
     print("=== Running the flow ===\n")
-    f = OrderFlow()
-    f.receive_order("ORD-001")
+    receive_order("ORD-001")
     print()
-    f.receive_order("ORD-002")
+    receive_order("ORD-002")
 
     # --- Generate the DAG ---
     print("\n=== Mermaid DAG ===\n")

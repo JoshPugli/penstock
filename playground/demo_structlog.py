@@ -6,7 +6,7 @@ Note: requires `structlog` to be installed (pip install structlog).
 
 from __future__ import annotations
 
-from penstock import current_flow_id, entrypoint, flow, step
+from penstock import current_flow_id, entrypoint, step
 from penstock.contrib.structlog import flow_processor
 
 try:
@@ -27,17 +27,16 @@ structlog.configure(
 log = structlog.get_logger()
 
 
-@flow("structlog_demo")
-class Demo:
-    @entrypoint
-    def start(self) -> None:
-        log.info("flow started", cid=current_flow_id())
-        self.process()
+@entrypoint("structlog_demo")
+def start() -> None:
+    log.info("flow started", cid=current_flow_id())
+    process()
 
-    @step(after="start")
-    def process(self) -> None:
-        log.info("processing data")
-        log.warning("something iffy", detail="check this")
+
+@step("structlog_demo", after="start")
+def process() -> None:
+    log.info("processing data")
+    log.warning("something iffy", detail="check this")
 
 
 if __name__ == "__main__":
@@ -45,7 +44,7 @@ if __name__ == "__main__":
     log.info("before flow")
 
     # Inside a flow — flow_id is injected automatically.
-    Demo().start()
+    start()
 
     # Outside again.
     log.info("after flow")
